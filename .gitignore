@@ -1,0 +1,65 @@
+# ===== Java =====
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# ===== Build outputs =====
+/target/
+/build/
+/out/
+*.jar
+*.war
+*.ear
+*.nar
+
+# ===== Maven =====
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+
+# ===== Gradle =====
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+gradle-app.setting
+build/
+.gradletasknamecache
+
+# ===== IDEs =====
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.project
+.classpath
+.settings/
+.factorypath
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# VS Code
+.vscode/
+
+# ===== OS files =====
+.DS_Store
+Thumbs.db
+
+# ===== Misc =====
+*.swp
+*.swo
+*.tmp
+*.bak
+.cache/
