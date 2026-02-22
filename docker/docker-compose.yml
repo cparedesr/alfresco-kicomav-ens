@@ -1,0 +1,108 @@
+version: '3.4'
+services:
+#  Optional
+  alfresco-kicomav-ens-share:
+    image: ${docker.share.image}:${alfresco.share.version}
+    environment:
+      REPO_HOST: alfresco-kicomav-ens-acs
+      REPO_PORT: 8080
+    # ports:
+    #   - "${share.port}:8080"
+  alfresco-kicomav-ens-acs:
+    image: alfresco-content-services-alfresco-kicomav-ens:development
+    build:
+      dockerfile: ./Dockerfile
+      context: ../../../target
+    environment:
+      JAVA_TOOL_OPTIONS: "${keystore.settings}"
+      JAVA_OPTS: "
+        -Dsolr.secureComms=secret
+        -Dsolr.sharedSecret=secret
+        -Dmessaging.broker.url=\"failover:(nio://alfresco-kicomav-ens-activemq:61616)?timeout=3000&jms.useCompression=true\"
+        "
+      CATALINA_OPTS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:8888"
+    # ports:
+    #   - "${acs.port}:8080"
+    #   - "${acs.debug.port}:8888"
+    volumes:
+      - alfresco-kicomav-ens-acs-volume:/usr/local/tomcat/alf_data
+    depends_on:
+      - alfresco-kicomav-ens-postgres
+  alfresco-kicomav-ens-postgres:
+    image: postgres:16.5
+    environment:
+      POSTGRES_DB: alfresco
+      POSTGRES_USER: alfresco
+      POSTGRES_PASSWORD: alfresco
+    command: postgres -c max_connections=300 -c log_min_messages=LOG
+    ports:
+      - "${postgres.port}:5432"
+    volumes:
+      - alfresco-kicomav-ens-db-volume:/var/lib/postgresql/data
+  alfresco-kicomav-ens-ass:
+    image: alfresco/alfresco-search-services:2.0.15
+    environment:
+      SOLR_ALFRESCO_HOST: alfresco-kicomav-ens-acs
+      SOLR_ALFRESCO_PORT: 8080
+      SOLR_SOLR_HOST: alfresco-kicomav-ens-ass
+      SOLR_SOLR_PORT: 8983
+      SOLR_CREATE_ALFRESCO_DEFAULTS: alfresco,archive
+      ALFRESCO_SECURE_COMMS: "secret"
+      JAVA_TOOL_OPTIONS: "-Dalfresco.secureComms.secret=secret"
+    ports:
+      - "8983:8983"
+    volumes:
+      - alfresco-kicomav-ens-ass-volume:/opt/alfresco-search-services/contentstore
+      - alfresco-kicomav-ens-ass-volume:/opt/alfresco-search-services/data
+  alfresco-kicomav-ens-activemq:
+      image: alfresco/alfresco-activemq:5.18-jre17-rockylinux8
+      mem_limit: 1g
+      ports:
+        - 8161:8161 # Web Console
+        - 5672:5672 # AMQP
+        - 61616:61616 # OpenWire
+        - 61613:61613 # STOMP
+
+  kicomav:
+      build:
+        context: .
+      ports:
+        - "8311:8311"
+        - "3311:3311"
+      volumes:
+        - kicomav-data:/var/lib/kicomav
+      restart: unless-stopped
+
+  content-app:
+    image: alfresco/alfresco-content-app:7.2.0
+    mem_limit: 128m
+    environment:
+      APP_BASE_SHARE_URL: "http://localhost:8080/aca/#/preview/s"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 1s
+      retries: 3
+      start_period: 1s
+
+  proxy:
+      image: nginx:stable-alpine
+      mem_limit: 128m
+      depends_on:
+            - alfresco-kicomav-ens-acs
+            - alfresco-kicomav-ens-share
+            - content-app
+      volumes:
+            - ./nginx.conf:/etc/nginx/nginx.conf
+            - ./nginx.htpasswd:/etc/nginx/conf.d/nginx.htpasswd
+      ports:
+            - 8080:8080
+
+volumes:
+  alfresco-kicomav-ens-acs-volume:
+    external: true
+  alfresco-kicomav-ens-db-volume:
+    external: true
+  alfresco-kicomav-ens-ass-volume:
+    external: true
+  kicomav-data:
