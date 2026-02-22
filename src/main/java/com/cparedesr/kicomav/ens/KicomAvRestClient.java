@@ -11,17 +11,31 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Cliente REST para KicomAV (k2d).
+ * KicomAvRestClient provides methods to interact with the KicomAV antivirus REST API.
+ * It supports pinging the service and scanning files for malware.
+ * <p>
+ * Usage:
+ * <ul>
+ *   <li>Instantiate with the base URL and timeout settings.</li>
+ *   <li>Use {@link #ping()} to check service availability.</li>
+ *   <li>Use {@link #scan(InputStream, String)} to scan files for viruses.</li>
+ * </ul>
+ * <p>
+ * The client handles multipart file uploads and parses various response formats,
+ * including plain text and JSON. It throws {@link KicomAvException} on errors.
  *
- * Endpoints esperados:
- *  - GET  /ping
- *  - POST /scan/file   (multipart/form-data, campo "file")
+ * <p>
+ * Example:
+ * <pre>
+ *   KicomAvRestClient client = new KicomAvRestClient("http://localhost:8080", 5000, 10000);
+ *   client.ping();
+ *   KicomAvScanResult result = client.scan(new FileInputStream("file.bin"), "file.bin");
+ * </pre>
  *
- * Cambios respecto a tu versión:
- *  - Parser MUCHO más tolerante: acepta respuestas limpias tipo "OK", "CLEAN", JSON infected=false, JSON status=infected, etc.
- *  - Maneja body vacío como "clean" (algunos servicios devuelven 204 o 200 sin body).
- *  - Mensajes de error más claros (incluyen URL).
+ * @author cparedesr
+ * @since 1.0
  */
+
 public class KicomAvRestClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(KicomAvRestClient.class);
@@ -52,7 +66,6 @@ public class KicomAvRestClient {
             String body = readAll(code >= 200 && code < 300 ? con.getInputStream() : con.getErrorStream());
             String norm = body == null ? "" : body.trim().toLowerCase();
 
-            // “pong” o “ok” son típicos
             if (code < 200 || code >= 300 || !(norm.contains("pong") || norm.contains("ok"))) {
                 throw new KicomAvException("KicomAV /ping falló. url=" + url + " HTTP=" + code + " body=" + body);
             }
@@ -65,14 +78,8 @@ public class KicomAvRestClient {
         }
     }
 
-    /**
-     * Escanea un stream por REST.
-     * IMPORTANTE: consume el InputStream completo.
-     */
     public KicomAvScanResult scan(InputStream data, String filename) {
         if (data == null) throw new IllegalArgumentException("data no puede ser null");
-
-        // Si quieres ping siempre, déjalo. Si KicomAV está caído, esto fallará rápido.
         ping();
 
         final String boundary = "----AlfrescoKicomAV" + System.currentTimeMillis();
@@ -93,13 +100,11 @@ public class KicomAvRestClient {
             String safeName = (filename == null || filename.isBlank()) ? "upload.bin" : filename;
 
             try (OutputStream out = new BufferedOutputStream(con.getOutputStream())) {
-                // Parte “file”
                 writeAscii(out, "--" + boundary + "\r\n");
                 writeAscii(out, "Content-Disposition: form-data; name=\"file\"; filename=\""
                         + escapeQuotes(safeName) + "\"\r\n");
                 writeAscii(out, "Content-Type: application/octet-stream\r\n\r\n");
 
-                // Copiamos bytes del fichero
                 byte[] buffer = new byte[16 * 1024];
                 int read;
                 long total = 0;
@@ -108,7 +113,6 @@ public class KicomAvRestClient {
                     total += read;
                 }
 
-                // Fin multipart
                 writeAscii(out, "\r\n");
                 writeAscii(out, "--" + boundary + "--\r\n");
                 out.flush();
@@ -117,8 +121,6 @@ public class KicomAvRestClient {
             }
 
             int code = con.getResponseCode();
-
-            // Algunos servidores devuelven 204 sin body
             InputStream responseStream = (code >= 200 && code < 300) ? con.getInputStream() : con.getErrorStream();
             String body = readAll(responseStream);
 
@@ -137,41 +139,23 @@ public class KicomAvRestClient {
         }
     }
 
-    /**
-     * Parser tolerante:
-     *  - clamd-like: "stream: OK" / "stream: <sig> FOUND"
-     *  - texto: "OK", "CLEAN"
-     *  - JSON: {"infected": false} / {"infected": true, "signature": "..."}
-     *  - JSON k2d: {"status":"infected|clean|ok|error", "malware":"..."}
-     *
-     * Si no reconoce, lanza excepción -> el behaviour decidirá (fail-open o fail-closed).
-     */
     private KicomAvScanResult parseScanResponse(String body) {
-        // Si body viene vacío (null o ""), lo tratamos como CLEAN para no tumbar uploads
-        // (algunos servicios responden 204/200 vacío cuando está limpio)
         if (body == null || body.trim().isEmpty()) {
             return KicomAvScanResult.clean();
         }
 
         String b = body.trim();
         String lower = b.toLowerCase();
-
-        // 1) Si aparece FOUND => infectado (clamd-style o texto)
-        //    (tolerante a mayúsculas/minúsculas)
         if (lower.contains("found")) {
-            // Intento extraer firma: "stream: Eicar... FOUND"
             String sig = b.replaceFirst("(?i)^.*?:\\s*", "")
                     .replaceFirst("(?i)\\s+FOUND\\s*$", "");
             return KicomAvScanResult.infected(sig);
         }
 
-        // 2) Indicadores de limpio
-        //    “ok”, “clean”, “no virus”, etc.
         if (lower.contains(" ok") || lower.equals("ok") || lower.contains("clean") || lower.contains("no virus")) {
             return KicomAvScanResult.clean();
         }
 
-        // 2.5) JSON estilo k2d: {"status":"infected|clean|ok|error", "malware":"..."}
         if (lower.contains("\"status\"")) {
             String status = extractJsonString(b, "status");
             if (status != null) {
@@ -195,10 +179,6 @@ public class KicomAvRestClient {
             }
         }
 
-        // 3) JSON infected=true/false (tolerante)
-        //    - infected: true  => infectado
-        //    - infected: false => limpio
-        //    Acepta true/false y también 1/0.
         if (lower.contains("\"infected\"")) {
             if (lower.matches("(?s).*\"infected\"\\s*:\\s*(true|1).*")) {
                 String sig = extractJsonString(b, "signature");
@@ -210,8 +190,6 @@ public class KicomAvRestClient {
             }
         }
 
-        // 4) JSON "result": "...":
-        //    result=clean/ok => limpio, result=infected => infectado
         if (lower.contains("\"result\"")) {
             String result = extractJsonString(b, "result");
             if (result != null) {
@@ -224,8 +202,6 @@ public class KicomAvRestClient {
             }
         }
 
-        // Si llegamos aquí, no sabemos interpretar. Eso estaba provocando que TODO falle si KicomAV devuelve
-        // un formato distinto al esperado. Ahora solo fallará si realmente es irreconocible.
         throw new KicomAvException("Respuesta inesperada de KicomAV /scan/file: " + b);
     }
 

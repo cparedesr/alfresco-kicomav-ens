@@ -12,18 +12,23 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * Tests unitarios del cliente REST.
- *
- * ¿Por qué usamos HttpServer embebido?
- * - No dependemos de Docker / KicomAV real.
- * - Controlamos exactamente las respuestas para testear:
- *   - OK/CLEAN
- *   - FOUND
- *   - JSON
- *   - errores HTTP
- *
- * Este es un patrón muy usado para testear "HTTP clients".
+ * Unit tests for {@link KicomAvRestClient}.
+ * <p>
+ * This test class uses an embedded HTTP server to simulate KicomAV REST API responses.
+ * It verifies the following behaviors:
+ * <ul>
+ *   <li>Successful ping request returns expected response.</li>
+ *   <li>Ping request with HTTP 500 error throws {@link KicomAvException}.</li>
+ *   <li>Scan request with clean file returns a non-infected result.</li>
+ *   <li>Scan request with infected file returns an infected result with signature.</li>
+ *   <li>Scan request with JSON response returns correct infection status and signature.</li>
+ *   <li>Scan request with HTTP 400 error throws {@link KicomAvException}.</li>
+ * </ul>
+ * <p>
+ * Helper methods are provided to respond with text and drain input streams.
+ * The server is started and stopped before and after each test.
  */
+
 class KicomAvRestClientTest {
 
     private HttpServer server;
@@ -49,8 +54,6 @@ class KicomAvRestClientTest {
         server.start();
 
         KicomAvRestClient client = new KicomAvRestClient(baseUrl, 2000, 2000);
-
-        // Si no lanza excepción, el test pasa
         client.ping();
     }
 
@@ -70,15 +73,9 @@ class KicomAvRestClientTest {
     void scan_clean_okText_shouldReturnClean() {
         server.createContext("/ping", ex -> respondText(ex, 200, "pong"));
         server.createContext("/scan/file", ex -> {
-            // Validamos que llega multipart (esto “prueba” que tu código está mandando form-data)
             Headers h = ex.getRequestHeaders();
             assertThat(h.getFirst("Content-Type")).contains("multipart/form-data");
-
-            // Consumimos el body (en un test real puedes ignorarlo,
-            // pero leerlo evita que queden bytes pendientes)
             drain(ex.getRequestBody());
-
-            // Simulamos respuesta estilo clamd "OK"
             respondText(ex, 200, "stream: OK");
         });
         server.start();
@@ -141,10 +138,6 @@ class KicomAvRestClientTest {
                 .isInstanceOf(KicomAvException.class)
                 .hasMessageContaining("/scan/file");
     }
-
-    // -----------------------
-    // Helpers de test
-    // -----------------------
 
     private static void respondText(HttpExchange ex, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);

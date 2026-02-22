@@ -4,6 +4,20 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Unit tests for the {@link KicomAvScanResult} class.
+ * <p>
+ * Tests cover:
+ * <ul>
+ *   <li>{@code cleanFactory_shouldBeClean}: Verifies that the {@code clean()} factory method returns a result
+ *       indicating no infection, with a null signature and a string representation of "CLEAN".</li>
+ *   <li>{@code infectedFactory_shouldContainSignature}: Verifies that the {@code infected(String)} factory method
+ *       returns a result indicating infection, with the provided signature and a string representation containing "INFECTED".</li>
+ *   <li>{@code infectedFactory_blankSignature_shouldDefault}: Verifies that when a blank signature is provided to
+ *       {@code infected(String)}, the signature defaults to "INFECTED".</li>
+ * </ul>
+ */
+
 class KicomAvScanResultTest {
 
     @Test
